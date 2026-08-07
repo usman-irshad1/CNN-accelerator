@@ -1,0 +1,840 @@
+# CNN Accelerator Project — Current Context & Roadmap
+
+This is the context we have established so far. You can use this as the **master reference** for continuing the project.
+
+---
+
+## 1. Overall Goal
+
+The goal is to build a **CNN accelerator on an FPGA in SystemVerilog**, starting from fundamental hardware blocks and gradually progressing toward a small but complete convolution engine.
+
+The approach is intentionally incremental:
+
+> **BRAM → MAC → 3×3 convolution → parallel MACs → adder tree → pipeline → sliding window → line buffers → multiple filters → CNN layer**
+
+The purpose is not just to make a CNN accelerator work, but to understand **why each architecture works and what trade-offs it has**.
+
+---
+
+# 2. What We Have Already Built
+
+## A. Dual-Port BRAM
+
+You created a parameterized dual-port BRAM.
+
+Conceptually:
+
+```text
+             Dual-Port BRAM
+             ┌─────────────┐
+Address 1 ──►│             │──► Read Data 1
+             │   Memory    │
+Address 2 ──►│             │──► Read Data 2
+             └─────────────┘
+```
+
+The important part is that both ports can access the memory independently.
+
+Your memory is initialized from:
+
+```text
+BRAM.mem
+```
+
+### Current memory organization
+
+Your memory values are:
+
+```text
+Address     Value
+1             0
+2             1
+3             2
+4             3
+5             4
+...
+```
+
+So, for example:
+
+```text
+Address 1 → 0
+Address 2 → 1
+Address 3 → 2
+Address 4 → 3
+Address 5 → 4
+```
+
+This is important when interpreting your simulation.
+
+---
+
+# 3. DSP / MAC Block
+
+You then built the DSP block.
+
+The basic operation is:
+
+[
+ACC \leftarrow ACC+(A\times B)
+]
+
+where:
+
+```text
+A = read_data_port1
+B = read_data_port2
+```
+
+Conceptually:
+
+```text
+       read_data_port1
+              │
+              ├──────┐
+              │      │
+              ▼      ▼
+             ┌────────┐
+             │MULTIPLY│
+             └────┬───┘
+                  │
+                  ▼
+             ┌─────────┐
+             │   ADD   │◄──── previous accumulator
+             └────┬────┘
+                  │
+                  ▼
+             ACCUMULATOR
+```
+
+Your accumulator is 27 bits:
+
+```text
+accum_length = 27
+```
+
+which gives enough room for the accumulation we are currently testing.
+
+---
+
+# 4. Why You Used the Negative Clock Edge
+
+You deliberately chose:
+
+```text
+posedge clock
+```
+
+for the BRAM read and:
+
+```text
+negedge clock
+```
+
+for the MAC.
+
+The idea is:
+
+```text
+Positive edge
+     ↓
+BRAM reads memory
+     ↓
+read_data_port1/2 update
+     ↓
+Negative edge
+     ↓
+DSP multiplies the two values
+     ↓
+Accumulator updates
+```
+
+So you're effectively using the two edges of the clock to separate the BRAM read and MAC operation.
+
+This was an important architectural decision.
+
+---
+
+# 5. Connecting the Accumulator to `out`
+
+We discussed that the accumulator itself needs to retain its value because it is state.
+
+Therefore the architecture is:
+
+```text
+                accumulator
+                    │
+                    ▼
+                   out
+```
+
+The accumulator is the register.
+
+`out` is simply exposing that register's current value.
+
+You **don't need another register for `out`** unless you specifically want another pipeline stage.
+
+---
+
+# 6. Testbench
+
+We then created a top-level module connecting:
+
+```text
+BRAM
+ ↓
+DSP
+```
+
+with the testbench controlling the addresses.
+
+The important signals exposed for debugging were:
+
+```text
+clock
+reset
+
+address_port1
+address_port2
+
+read_data_port1
+read_data_port2
+
+result
+```
+
+This was deliberate because we wanted to see the entire datapath in the waveform.
+
+---
+
+# 7. Your Waveform Successfully Verified the MAC
+
+Your waveform showed the correct behavior.
+
+With:
+
+```text
+Port 1 addresses:
+1, 2, 3, 4, 5...
+
+Port 2 addresses:
+2, 3, 4, 5, 6...
+```
+
+your corresponding data was:
+
+```text
+Port 1: 0, 1, 2, 3, 4...
+Port 2: 1, 2, 3, 4, 5...
+```
+
+Therefore the DSP calculates:
+
+[
+0\times1=0
+]
+
+[
+1\times2=2
+]
+
+[
+2\times3=6
+]
+
+[
+3\times4=12
+]
+
+[
+4\times5=20
+]
+
+and the accumulator becomes:
+
+[
+0
+\rightarrow2
+\rightarrow8
+\rightarrow20
+\rightarrow40
+]
+
+Your waveform showed **40**, confirming that the MAC is working.
+
+---
+
+# 8. Why `$display` Printed 20 While the Waveform Showed 40
+
+This was also resolved.
+
+Your accumulator uses a nonblocking assignment:
+
+```text
+accumulator <= accumulator + product;
+```
+
+At the clock edge, the old accumulator value is temporarily visible during the current simulation scheduling region.
+
+So `$display` could see:
+
+```text
+20
+```
+
+while the waveform, after the nonblocking update completed, showed:
+
+```text
+40
+```
+
+This is a **SystemVerilog simulation scheduling issue**, not an error in your MAC.
+
+Using a small delay or `$strobe` when printing the final result allows you to see the updated value.
+
+---
+
+# 9. What We Have Proven
+
+At this point, you have experimentally demonstrated:
+
+### Memory
+
+```text
+Dual-port BRAM
+```
+
+### Data movement
+
+```text
+BRAM → read_data
+```
+
+### Computation
+
+```text
+read_data1 × read_data2
+```
+
+### Accumulation
+
+```text
+previous_ACC + product
+```
+
+### Timing
+
+```text
+posedge → memory read
+negedge → MAC
+```
+
+### Verification
+
+```text
+waveform → correct
+```
+
+So you have a working **hardware MAC datapath**.
+
+---
+
+# 10. Why This Matters for CNNs
+
+A CNN convolution is fundamentally a dot product.
+
+For a 3×3 kernel:
+
+[
+Y=
+X_0W_0+
+X_1W_1+
+X_2W_2+
+X_3W_3+
+X_4W_4+
+X_5W_5+
+X_6W_6+
+X_7W_7+
+X_8W_8
+]
+
+That is simply:
+
+[
+\boxed{Y=\sum_{i=0}^{8}X_iW_i}
+]
+
+Your current MAC already performs:
+
+[
+ACC\leftarrow ACC+X_iW_i
+]
+
+Therefore, the MAC you've built is the **fundamental computational unit of the CNN accelerator**.
+
+---
+
+# 11. What We Will Build Next
+
+Since you have time and want to understand the architecture deeply, we're **not going to skip directly to a sophisticated accelerator**.
+
+We'll build several versions and compare them.
+
+---
+
+## Stage 1 — Current
+
+### Single MAC
+
+```text
+BRAM
+ ↓
+1 MAC
+ ↓
+Accumulator
+```
+
+Status:
+
+**DONE / VERIFIED**
+
+---
+
+# Stage 2 — Single MAC 3×3 Convolution
+
+Now we will use your existing MAC to calculate:
+
+[
+X_0W_0+
+X_1W_1+
+...
++
+X_8W_8
+]
+
+Sequentially.
+
+```text
+Cycle 1 → X0 × W0
+Cycle 2 → X1 × W1
+Cycle 3 → X2 × W2
+...
+Cycle 9 → X8 × W8
+```
+
+Result:
+
+```text
+one 3×3 convolution
+```
+
+### Purpose
+
+Learn:
+
+* dot products
+* kernel organization
+* sequential MAC reuse
+* CNN convolution mathematically
+* memory organization
+
+**This should be our immediate next step.**
+
+---
+
+# Stage 3 — Vector-Based Version
+
+Then we'll organize the 9 inputs and 9 weights as vectors:
+
+[
+X=[X_0,...,X_8]
+]
+
+[
+W=[W_0,...,W_8]
+]
+
+We'll explore SystemVerilog arrays/vectors and `for` loops.
+
+The key lesson will be:
+
+> A `for` loop does not automatically mean sequential hardware.
+
+Depending on where and how it is used, synthesis can create parallel hardware.
+
+---
+
+# Stage 4 — 3 MAC Architecture
+
+Instead of one MAC, use three:
+
+```text
+        MAC 0
+        MAC 1
+        MAC 2
+```
+
+For example:
+
+```text
+Cycle 1:
+MAC0 → X0W0
+MAC1 → X1W1
+MAC2 → X2W2
+
+Cycle 2:
+MAC0 → X3W3
+MAC1 → X4W4
+MAC2 → X5W5
+
+Cycle 3:
+MAC0 → X6W6
+MAC1 → X7W7
+MAC2 → X8W8
+```
+
+Then combine the three results.
+
+This demonstrates **partial parallelism**.
+
+---
+
+# Stage 5 — 9 Parallel Multipliers
+
+Then we'll deliberately build:
+
+```text
+X0 × W0
+X1 × W1
+X2 × W2
+...
+X8 × W8
+```
+
+simultaneously.
+
+Now the nine multiplications happen in parallel.
+
+This teaches:
+
+[
+\boxed{\text{parallelism vs resource usage}}
+]
+
+---
+
+# Stage 6 — Adder Tree
+
+Once we have nine products:
+
+[
+P_0,P_1,\ldots,P_8
+]
+
+we need:
+
+[
+P_0+P_1+\cdots+P_8
+]
+
+We'll implement a proper **reduction/adder tree**.
+
+Conceptually:
+
+```text
+P0 ─┐
+    ├─ADD──┐
+P1 ─┘      │
+           ├─ADD──┐
+P2 ─┐      │      │
+    ├─ADD──┘      │
+P3 ─┘             ├── ...
+                  │
+P4 ─┐             │
+    ├─ADD──┐      │
+P5 ─┘      │      │
+           ├─ADD──┘
+P6 ─┐      │
+    ├─ADD──┘
+P7 ─┘
+```
+
+This introduces **combinational depth and timing**.
+
+---
+
+# Stage 7 — Pipeline
+
+Then we'll pipeline the computation:
+
+```text
+Multipliers
+     ↓
+Register
+     ↓
+Adder stage
+     ↓
+Register
+     ↓
+Adder stage
+     ↓
+Register
+     ↓
+Output
+```
+
+We'll learn the difference between:
+
+### Latency
+
+How long one result takes.
+
+### Throughput
+
+How frequently new results can be produced.
+
+This is fundamental to high-performance FPGA design.
+
+---
+
+# Stage 8 — Sliding Window
+
+Only after we understand the compute architecture will we tackle the data movement.
+
+For example:
+
+```text
+1  2  3  4
+5  6  7  8
+9 10 11 12
+13 14 15 16
+```
+
+First window:
+
+```text
+1 2 3
+5 6 7
+9 10 11
+```
+
+Next window:
+
+```text
+2 3 4
+6 7 8
+10 11 12
+```
+
+Most of the data is reused.
+
+We don't want to repeatedly read everything from BRAM.
+
+---
+
+# Stage 9 — Line Buffers
+
+We'll introduce:
+
+```text
+Input BRAM
+     ↓
+Line Buffers
+     ↓
+Shift Registers
+     ↓
+3×3 Window
+     ↓
+MAC Array
+```
+
+This is where the design becomes a real streaming CNN datapath.
+
+---
+
+# Stage 10 — Multiple Filters
+
+A real CNN has multiple kernels/output channels.
+
+We'll eventually have:
+
+```text
+             Input
+               │
+       ┌───────┼───────┐
+       ↓       ↓       ↓
+    Filter 0 Filter 1 Filter 2
+       │       │       │
+       ↓       ↓       ↓
+     Output  Output  Output
+     Channel Channel Channel
+```
+
+---
+
+# Stage 11 — Bias + ReLU
+
+Then we'll add:
+
+[
+Y=MAC+bias
+]
+
+followed by ReLU:
+
+[
+ReLU(x)=\max(0,x)
+]
+
+So:
+
+```text
+MAC
+ ↓
+Bias
+ ↓
+ReLU
+ ↓
+Output BRAM
+```
+
+---
+
+# Stage 12 — Small Complete CNN Accelerator
+
+Eventually the complete architecture becomes:
+
+```text
+                INPUT BRAM
+                     │
+                     ▼
+                LINE BUFFERS
+                     │
+                     ▼
+              SLIDING WINDOW
+                     │
+                     ▼
+                MAC ARRAY
+                     │
+                     ▼
+                 ADD TREE
+                     │
+                     ▼
+                   BIAS
+                     │
+                     ▼
+                  ReLU
+                     │
+                     ▼
+                OUTPUT BRAM
+```
+
+Then we'll test it with a small CNN layer.
+
+---
+
+# The Big Picture
+
+The entire project can be thought of as learning **three things simultaneously**:
+
+### 1. Computation
+
+```text
+Multiply
+   ↓
+Accumulate
+   ↓
+Dot Product
+   ↓
+Convolution
+```
+
+### 2. Parallelism
+
+```text
+1 MAC
+ ↓
+3 MACs
+ ↓
+9 MACs
+ ↓
+MAC array
+```
+
+### 3. Data movement
+
+```text
+BRAM
+ ↓
+Line buffers
+ ↓
+Sliding window
+ ↓
+MAC array
+ ↓
+Output memory
+```
+
+Those three concepts eventually come together to form the CNN accelerator.
+
+---
+
+# Our Current Position
+
+```text
+                    CNN ACCELERATOR
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ Dual BRAM   │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   1 MAC     │  ← YOU ARE HERE
+                    └──────┬──────┘
+                           │
+                           ▼
+                 ┌──────────────────┐
+                 │ 3×3 sequential   │ ← NEXT
+                 │ convolution      │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                    Vector version
+                          │
+                          ▼
+                       3 MACs
+                          │
+                          ▼
+                       9 MACs
+                          │
+                          ▼
+                     Adder Tree
+                          │
+                          ▼
+                      Pipeline
+                          │
+                          ▼
+                   Sliding Window
+                          │
+                          ▼
+                    Line Buffers
+                          │
+                          ▼
+                   Multiple Filters
+                          │
+                          ▼
+                      Bias + ReLU
+                          │
+                          ▼
+                Complete CNN Layer
+```
+
+### Immediate next objective
+
+**Do not build the 9-MAC version yet.**
+
+Our next task should be to take the **exact MAC you already verified** and make it calculate **one complete 3×3 convolution sequentially**.
+
+That will give you a clean foundation before we start increasing parallelism.
