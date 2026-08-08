@@ -16,6 +16,7 @@ module BRAM #(
     input  logic [mem_length-1:0] write_data_port2,
     output logic [mem_length-1:0] read_data_port2,
     input  logic [ins_width-1:0]  address_port2
+   
 );
 
     logic [mem_length-1:0] data [mem_depth-1:0];

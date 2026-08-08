@@ -12,7 +12,9 @@ MAC.cache/
 MAC.hw/
 MAC.ip_user_files/
 MAC.sim/
+MAC.runs/
 xsim.dir/
+*.wdb
 
 # Temporary Scratch Scripts
 scratch/
