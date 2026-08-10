@@ -15,15 +15,16 @@ module MAC_TOP #(
     output logic [mem_length-1:0]   read_data_port1,
     output logic [mem_length-1:0]   read_data_port2,
 
-    output logic [accum_length-1:0] result
-);
+    output logic [accum_length-1:0] result,
 
-    logic                  read_enable_port1;
-    logic                  write_enable_port1;
-    logic                  read_enable_port2;
-    logic                  write_enable_port2;
-    logic [mem_length-1:0] write_data_port1;
-    logic [mem_length-1:0] write_data_port2;
+    // Debug / Submodule exposed outputs
+    output logic                    read_enable_port1,
+    output logic                    write_enable_port1,
+    output logic                    read_enable_port2,
+    output logic                    write_enable_port2,
+    output logic [mem_length-1:0]   write_data_port1,
+    output logic [mem_length-1:0]   write_data_port2
+);
 
     BRAM #(
         .mem_depth(mem_depth),
