@@ -30,12 +30,25 @@ flowchart TD
     AGU --> BRAM1[BRAM 1<br/>Image Tensor & Kernel 1]
     AGU --> BRAM2[BRAM 2<br/>Kernel 2 & Kernel 3]
 
-    BRAM1 -->|Image Data & Kernel 1 Weights| DSP1[DSP 1 MAC Core<br/>DSP.sv]
-    BRAM1 -->|Image Data Broadcast| DSP2[DSP 2 MAC Core<br/>DSP_2.sv]
-    BRAM1 -->|  Image Data Broadcast| DSP3[DSP 3 MAC Core<br/>DSP_3.sv]
+    subgraph Data_Streams [Memory Data Streams]
+        IMG[Image Data Broadcast]
+        K1[Kernel 1 Weights]
+        K2[Kernel 2 Weights]
+        K3[Kernel 3 Weights]
+    end
 
-    BRAM2 -->|Kernel 2 Weights| DSP2
-    BRAM2 -->|Kernel 3 Weights| DSP3
+    BRAM1 --> IMG
+    BRAM1 --> K1
+    BRAM2 --> K2
+    BRAM2 --> K3
+
+    IMG --> DSP1[DSP 1 MAC Core<br/>DSP.sv]
+    IMG --> DSP2[DSP 2 MAC Core<br/>DSP_2.sv]
+    IMG --> DSP3[DSP 3 MAC Core<br/>DSP_3.sv]
+
+    K1 --> DSP1
+    K2 --> DSP2
+    K3 --> DSP3
 
     DSP1 --> RESULT[ReLU Activation & Result Memory<br/>result_mem.sv]
     DSP2 --> RESULT
