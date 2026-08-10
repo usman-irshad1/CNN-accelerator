@@ -14,13 +14,34 @@ This project implements a custom FPGA hardware accelerator datapath designed to 
 
 ## Hardware Architecture and Datapath
 
-The accelerator architecture consists of four primary hardware blocks:
+The accelerator architecture consists of five primary hardware blocks:
 
 1. **Address Generation Unit (AGU)** (`address_generator.sv`): Maps 3D spatial coordinates `(channel, row, column)` into sequential 1D Block RAM memory addresses.
 2. **Execution Controller (FSM)** (`Controller.sv`): A finite state machine (`IDLE`, `RUN`, `DONE`) managing 2D spatial patch windowing, depth channel iterations, read enables, accumulator clears, and result write strobes.
 3. **Dual-Port Block RAM Units** (`BRAM_1.sv`, `BRAM_2.sv`): Dual-port memory structures storing 3D image pixel tensors (`BRAM.mem`) and weight matrices (`Kernel_1.mem`, `kernel_2.mem`, `Kernel_3.mem`).
 4. **Multi-DSP Compute Engines** (`DSP.sv`, `DSP_2.sv`, `DSP_3.sv`): Three parallel Multiply-Accumulate (MAC) cores with 27-bit accumulator registers that process three output feature map kernels concurrently.
-5. **ReLU Activation & Result Memory** (`result_mem.sv`): Latching unit that applies independent rectified linear unit activation ($\max(0, x)$) per DSP channel upon completion of depth channel accumulation.
+5. **ReLU Activation & Result Memory** (`result_mem.sv`): Latching unit that applies independent rectified linear unit activation per DSP channel upon completion of depth channel accumulation.
+
+### Architectural Dataflow Diagram
+
+```mermaid
+graph TD
+    FSM[FSM Controller<br/>Controller.sv] --> AGU[Address Generator AGU<br/>address_generator.sv]
+    AGU --> BRAM1[BRAM 1<br/>Image Tensor & Kernel 1]
+    AGU --> BRAM2[BRAM 2<br/>Kernel 2 & Kernel 3]
+    BRAM1 -->|Image Broadcast| DSP1[DSP 1 MAC Core<br/>DSP.sv]
+    BRAM1 -->|Image Broadcast| DSP2[DSP 2 MAC Core<br/>DSP_2.sv]
+    BRAM1 -->|Image Broadcast| DSP3[DSP 3 MAC Core<br/>DSP_3.sv]
+    BRAM1 -->|Kernel 1 Weights| DSP1
+    BRAM2 -->|Kernel 2 Weights| DSP2
+    BRAM2 -->|Kernel 3 Weights| DSP3
+    DSP1 --> RESULT[ReLU Activation & Result Memory<br/>result_mem.sv]
+    DSP2 --> RESULT
+    DSP3 --> RESULT
+    RESULT --> OUT[Output Feature Maps<br/>results, results_1, results_2]
+```
+
+### Block Structural Diagram
 
 ```text
                                ┌───────────────────────────┐
@@ -65,14 +86,23 @@ The accelerator architecture consists of four primary hardware blocks:
 ## Mathematical Formulation
 
 ### 1. Multi-Channel 3D Convolution
-For an input tensor $X$ with $D$ input channels and spatial resolution $H \times W$, the output pixel $Y$ for filter $c_{out}$ at spatial location $(r, c)$ is computed as:
 
-$$Y_{c_{out}}(r, c) = \text{ReLU} \left( \sum_{c_{in}=0}^{D-1} \sum_{i=0}^{\text{kernel\_size}-1} X(c_{in}, r, c, i) \cdot W_{c_{out}}(c_{in}, i) \right)$$
+For an input tensor `X` with `D` input channels and spatial resolution `H x W`, the output pixel `Y` for filter `c_out` at spatial location `(r, c)` is defined as:
+
+$$
+Y_{c_{out}}(r, c) = \text{ReLU} \left( \sum_{c_{in}=0}^{D-1} \sum_{i=0}^{\text{kernel\_size}-1} X(c_{in}, r, c, i) \cdot W_{c_{out}}(c_{in}, i) \right)
+$$
+
+### Plain-Text Formula Equivalent:
+
+```text
+Y[c_out][r][c] = ReLU( Sum over c_in from 0 to D-1 of ( Sum over i from 0 to kernel_size-1 of ( X[c_in][r][c][i] * W[c_out][c_in][i] ) ) )
+```
 
 Where:
-- $X(c_{in}, r, c, i)$ is the pixel value at spatial window offset $i$ in channel $c_{in}$.
-- $W_{c_{out}}(c_{in}, i)$ is the corresponding kernel weight value.
-- $\text{ReLU}(z) = \max(0, z)$ is the activation function.
+- `X(c_in, r, c, i)` is the pixel value at spatial window offset `i` in channel `c_in`.
+- `W(c_out, c_in, i)` is the corresponding kernel weight value.
+- `ReLU(z) = max(0, z)` is the non-linear activation function.
 
 ---
 
@@ -114,7 +144,7 @@ CNN-accelerator/
 
 ## Simulation and Verification
 
-The top-level testbench (`TB_CC_full.sv`) validates multi-channel, multi-DSP 3D convolution on a $5 \times 5 \times 2$ input tensor ($H=5, W=5, D=2$) with $3 \times 3$ kernels across all 3 parallel DSP channels.
+The top-level testbench (`TB_CC_full.sv`) validates multi-channel, multi-DSP 3D convolution on a 5 x 5 x 2 input tensor (`H=5, W=5, D=2`) with 3 x 3 kernels across all 3 parallel DSP channels.
 
 ### Verified Simulation Results (`depth = 2`):
 
