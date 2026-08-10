@@ -32,7 +32,7 @@ flowchart TD
 
     BRAM1 -->|Image Data & Kernel 1 Weights| DSP1[DSP 1 MAC Core<br/>DSP.sv]
     BRAM1 -->|Image Data Broadcast| DSP2[DSP 2 MAC Core<br/>DSP_2.sv]
-    BRAM1 -->|Image Data Broadcast| DSP3[DSP 3 MAC Core<br/>DSP_3.sv]
+    BRAM1 -->|  Image Data Broadcast| DSP3[DSP 3 MAC Core<br/>DSP_3.sv]
 
     BRAM2 -->|Kernel 2 Weights| DSP2
     BRAM2 -->|Kernel 3 Weights| DSP3
