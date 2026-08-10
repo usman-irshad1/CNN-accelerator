@@ -34,6 +34,30 @@ module CNN_TOP_tb;
 
 
     // =========================================================
+    // EXPOSED TOP-LEVEL DEBUG SIGNALS
+    // =========================================================
+
+    logic mac_done;
+    logic finish;
+    logic clear;
+    logic conv_done;
+
+    logic [4:0] count;
+    logic [4:0] row;
+    logic [4:0] column;
+
+    logic [8:0] address_selected;
+    logic [8:0] address_port1;
+    logic [8:0] address_port2;
+
+    logic [8:0] read_data_port1;
+    logic [8:0] read_data_port2;
+
+    logic [accum_length-1:0] accumulator_out;
+    logic [accum_length-1:0] prev_result;
+
+
+    // =========================================================
     // DUT
     // =========================================================
 
@@ -47,31 +71,44 @@ module CNN_TOP_tb;
         .clock(clock),
         .reset(reset),
 
-        .results(results)
+        .results(results),
+
+        // Exposed debugging outputs connected directly from top
+        .mac_done(mac_done),
+        .finish(finish),
+        .clear(clear),
+        .conv_done(conv_done),
+
+        .count(count),
+        .row(row),
+        .column(column),
+
+        .address_selected(address_selected),
+        .address_port1(address_port1),
+        .address_port2(address_port2),
+
+        .read_data_port1(read_data_port1),
+        .read_data_port2(read_data_port2),
+
+        .accumulator_out(accumulator_out),
+        .prev_result(prev_result)
 
     );
 
 
     // =========================================================
-    // BRAM INITIALIZATION
+    // BRAM INITIALIZATION & DEBUG SETUP
     // Port 1 reads Pixels (addresses 0 to 24)
     // Port 2 reads Weights (addresses 25 to 33)
     // =========================================================
 
     integer i;
 
-    initial
-    begin
-        // Initialize Image Pixels (Address 0 to 24 for 5x5 image)
-        for (i = 0; i < 25; i = i + 1) begin
-            dut.bram_inst.data[i] = i + 1; // Pixels: 1, 2, 3, ..., 25
-        end
-
-        // Initialize 3x3 Kernel Weights (Address 25 to 33)
-        // All weights set to 1 for 3x3 spatial filter/sum test
-        for (i = 0; i < 9; i = i + 1) begin
-            dut.bram_inst.data[WEIGHT_OFFSET + i] = 9'd1;
-        end
+    initial begin
+        // BRAM initializes automatically via $readmemb("BRAM.mem", data) inside BRAM_1.sv
+        $display("=======================================================");
+        $display("BRAM INITIALIZED: Pixels [0..24], Weights [25..33]");
+        $display("=======================================================");
     end
 
 
@@ -81,12 +118,9 @@ module CNN_TOP_tb;
 
     initial
     begin
-
         clock = 0;
-
         forever
             #5 clock = ~clock;
-
     end
 
 
@@ -96,75 +130,65 @@ module CNN_TOP_tb;
 
     initial
     begin
-
         reset = 1;
-
         #20;
-
         reset = 0;
-
     end
 
 
     // =========================================================
-    // MONITOR
+    // MONITOR & EXTENSIVE DEBUG LOGGING
     // =========================================================
 
     always @(posedge clock)
     begin
-
-        $display(
-            "TIME=%0t | ROW=%0d COL=%0d COUNT=%0d | ADDR_PX=%0d ADDR_WT=%0d | PX=%0d WT=%0d | ACC=%0d | MAC_DONE=%b FINISH=%b CLEAR=%b CONV_DONE=%b",
-
-            $time,
-
-            dut.row,
-            dut.column,
-            dut.count,
-
-            dut.address_selected,
-            dut.address_port2,
-
-            dut.read_data_port1,
-            dut.read_data_port2,
-
-            dut.accumulator_out,
-
-            dut.mac_done,
-            dut.finish,
-            dut.clear,
-            dut.conv_done
-        );
-
+        if (!reset) begin
+            $display(
+                "TIME=%0t | ROW=%0d COL=%0d COUNT=%0d | ADDR_SEL=%0d ADDR_P1=%0d ADDR_P2=%0d | PX(P1)=%0d WT(P2)=%0d | ACC=%0d PREV=%0d | MAC_DONE=%b FINISH=%b CLEAR=%b CONV_DONE=%b",
+                $time,
+                row,
+                column,
+                count,
+                address_selected,
+                address_port1,
+                address_port2,
+                read_data_port1,
+                read_data_port2,
+                accumulator_out,
+                prev_result,
+                mac_done,
+                finish,
+                clear,
+                conv_done
+            );
+        end
     end
 
 
     // =========================================================
-    // WAIT FOR CONVOLUTION
+    // WAIT FOR CONVOLUTION & FINAL RESULTS SUMMARY
     // =========================================================
 
     initial
     begin
-
         wait(reset == 0);
 
-        wait(dut.conv_done == 1);
+        wait(conv_done == 1);
 
-        #20;
+        #50;
 
         $display("");
         $display("======================================");
-        $display("CONVOLUTION COMPLETE");
+        $display("CONVOLUTION COMPLETE - FINAL RESULTS");
         $display("======================================");
 
         for (i = 0; i < result_size; i = i + 1) begin
-            $display("Result %0d = %0d", i, results[i]);
+            $display("Result[%0d] = %0d", i, results[i]);
         end
 
         $display("======================================");
 
         $finish;
-
     end
 
 endmodule
