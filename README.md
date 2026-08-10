@@ -22,7 +22,7 @@ The accelerator architecture consists of five primary hardware blocks:
 4. **Multi-DSP Compute Engines** (`DSP.sv`, `DSP_2.sv`, `DSP_3.sv`): Three parallel Multiply-Accumulate (MAC) cores with 27-bit accumulator registers that process three output feature map kernels concurrently.
 5. **ReLU Activation & Result Memory** (`result_mem.sv`): Latching unit that applies independent rectified linear unit activation per DSP channel upon completion of depth channel accumulation.
 
-### Architectural Dataflow Diagram
+### Architectural Datapath Diagram
 
 ```mermaid
 graph TD
@@ -41,68 +41,29 @@ graph TD
     RESULT --> OUT[Output Feature Maps<br/>results, results_1, results_2]
 ```
 
-### Block Structural Diagram
-
-```text
-                               ┌───────────────────────────┐
-                               │     FSM Controller        │
-                               │     (Controller.sv)       │
-                               └─────────────┬─────────────┘
-                                             │
-                                             ▼
-                               ┌───────────────────────────┐
-                               │ Address Generator (AGU)   │
-                               │ (address_generator.sv)    │
-                               └─────────────┬─────────────┘
-                                             │
-                        ┌────────────────────┴────────────────────┐
-                        ▼                                         ▼
-         ┌─────────────────────────────┐           ┌─────────────────────────────┐
-         │       BRAM 1 (Image & K1)   │           │       BRAM 2 (K2 & K3)      │
-         └──────────────┬──────────────┘           └──────────────┬──────────────┘
-                        │ (Image Stream Broadcast)                │ (Kernels 2 & 3)
-         ┌──────────────┼───────────────────────────┐             │
-         │              │                           │             │
-         ▼              ▼                           ▼             ▼
-   ┌───────────┐  ┌───────────┐               ┌───────────┐ ┌───────────┐
-   │   DSP 1   │  │   DSP 2   │               │   DSP 2   │ │   DSP 3   │
-   │  (MAC 1)  │  │  (MAC 2)  │               │  (MAC 2)  │ │  (MAC 3)  │
-   └─────┬─────┘  └─────┬─────┘               └─────┬─────┘ └─────┬─────┘
-         │              │                           │             │
-         └──────────────┼───────────────────────────┘             │
-                        ▼                                         ▼
-                 ┌──────────────────────────────────────────────────────┐
-                 │          ReLU Activation & Result Memory             │
-                 │                   (result_mem.sv)                    │
-                 └──────────────────────────────┬───────────────────────┘
-                                                │
-                                                ▼
-                                    [ Parallel Output Feature Maps ]
-                                     (results, results_1, results_2)
-```
-
 ---
 
 ## Mathematical Formulation
 
-### 1. Multi-Channel 3D Convolution
+### 1. Multi-Channel 3D Convolution Equation
 
-For an input tensor `X` with `D` input channels and spatial resolution `H x W`, the output pixel `Y` for filter `c_out` at spatial location `(r, c)` is defined as:
+For an input tensor $X$ with $D$ input channels and spatial resolution $H \times W$, the output pixel $Y$ for filter $c_{out}$ at spatial location $(r, c)$ with kernel size $K$ is defined as:
 
 $$
-Y_{c_{out}}(r, c) = \text{ReLU} \left( \sum_{c_{in}=0}^{D-1} \sum_{i=0}^{\text{kernel\_size}-1} X(c_{in}, r, c, i) \cdot W_{c_{out}}(c_{in}, i) \right)
+Y_{c_{out}}(r, c) = \max \left( 0, \sum_{c_{in}=0}^{D-1} \sum_{i=0}^{K-1} X(c_{in}, r, c, i) \cdot W_{c_{out}}(c_{in}, i) \right)
 $$
 
-### Plain-Text Formula Equivalent:
+### Plain-Text Representation:
 
 ```text
-Y[c_out][r][c] = ReLU( Sum over c_in from 0 to D-1 of ( Sum over i from 0 to kernel_size-1 of ( X[c_in][r][c][i] * W[c_out][c_in][i] ) ) )
+Y[c_out][r][c] = max( 0, Sum over c_in from 0 to D-1 of ( Sum over i from 0 to K-1 of ( X[c_in][r][c][i] * W[c_out][c_in][i] ) ) )
 ```
 
 Where:
-- `X(c_in, r, c, i)` is the pixel value at spatial window offset `i` in channel `c_in`.
-- `W(c_out, c_in, i)` is the corresponding kernel weight value.
-- `ReLU(z) = max(0, z)` is the non-linear activation function.
+- `X(c_in, r, c, i)` is the pixel value at spatial window element offset `i` in channel `c_in`.
+- `W(c_out, c_in, i)` is the weight value for output filter `c_out` at channel `c_in` offset `i`.
+- `K` is the total number of elements per kernel patch (e.g., $K=9$ for a $3 \times 3$ kernel).
+- $\max(0, z)$ is the non-linear Rectified Linear Unit (ReLU) activation function.
 
 ---
 
