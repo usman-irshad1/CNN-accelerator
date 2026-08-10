@@ -16,28 +16,31 @@ This project implements a custom FPGA hardware accelerator datapath designed to 
 
 The accelerator architecture consists of five primary hardware blocks:
 
-1. **Address Generation Unit (AGU)** (`address_generator.sv`): Maps 3D spatial coordinates `(channel, row, column)` into sequential 1D Block RAM memory addresses.
+1. **Address Generation Unit (AGU)** (`adress_generator.sv`): Maps 3D spatial coordinates `(channel, row, column)` into sequential 1D Block RAM memory addresses.
 2. **Execution Controller (FSM)** (`Controller.sv`): A finite state machine (`IDLE`, `RUN`, `DONE`) managing 2D spatial patch windowing, depth channel iterations, read enables, accumulator clears, and result write strobes.
 3. **Dual-Port Block RAM Units** (`BRAM_1.sv`, `BRAM_2.sv`): Dual-port memory structures storing 3D image pixel tensors (`BRAM.mem`) and weight matrices (`Kernel_1.mem`, `kernel_2.mem`, `Kernel_3.mem`).
 4. **Multi-DSP Compute Engines** (`DSP.sv`, `DSP_2.sv`, `DSP_3.sv`): Three parallel Multiply-Accumulate (MAC) cores with 27-bit accumulator registers that process three output feature map kernels concurrently.
 5. **ReLU Activation & Result Memory** (`result_mem.sv`): Latching unit that applies independent rectified linear unit activation per DSP channel upon completion of depth channel accumulation.
 
-### Architectural Datapath Diagram
+### Architectural Datapath Flowchart
 
 ```mermaid
-graph TD
-    FSM[FSM Controller<br/>Controller.sv] --> AGU[Address Generator AGU<br/>address_generator.sv]
+flowchart TD
+    FSM[FSM Controller<br/>Controller.sv] --> AGU[Address Generator AGU<br/>adress_generator.sv]
     AGU --> BRAM1[BRAM 1<br/>Image Tensor & Kernel 1]
     AGU --> BRAM2[BRAM 2<br/>Kernel 2 & Kernel 3]
-    BRAM1 -->|Image Broadcast| DSP1[DSP 1 MAC Core<br/>DSP.sv]
-    BRAM1 -->|Image Broadcast| DSP2[DSP 2 MAC Core<br/>DSP_2.sv]
-    BRAM1 -->|Image Broadcast| DSP3[DSP 3 MAC Core<br/>DSP_3.sv]
-    BRAM1 -->|Kernel 1 Weights| DSP1
+
+    BRAM1 -->|Image Data & Kernel 1 Weights| DSP1[DSP 1 MAC Core<br/>DSP.sv]
+    BRAM1 -->|Image Data Broadcast| DSP2[DSP 2 MAC Core<br/>DSP_2.sv]
+    BRAM1 -->|Image Data Broadcast| DSP3[DSP 3 MAC Core<br/>DSP_3.sv]
+
     BRAM2 -->|Kernel 2 Weights| DSP2
     BRAM2 -->|Kernel 3 Weights| DSP3
+
     DSP1 --> RESULT[ReLU Activation & Result Memory<br/>result_mem.sv]
     DSP2 --> RESULT
     DSP3 --> RESULT
+
     RESULT --> OUT[Output Feature Maps<br/>results, results_1, results_2]
 ```
 
@@ -82,7 +85,7 @@ Where:
 CNN-accelerator/
 ├── MAC.srcs/
 │   ├── sources_1/new/
-│   │   ├── address_generator.sv   # 3D spatial to 1D linear memory AGU
+│   │   ├── adress_generator.sv   # 3D spatial to 1D linear memory AGU
 │   │   ├── Controller.sv          # Main execution FSM controller
 │   │   ├── BRAM_1.sv              # Dual-port BRAM for image & Kernel 1
 │   │   ├── BRAM_2.sv              # Dual-port BRAM for Kernel 2 & Kernel 3
