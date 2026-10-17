@@ -154,6 +154,6 @@ Result_DSP1[8] = 0  |  Result_DSP2[8] = 19 |  Result_DSP3[8] = 163
 ---
 
 ## Author & License
-- **Author**: Mohammad Usman Irshad
-- **Repository**: `CNN-accelerator`
-- **License**: MIT
+- **Author**: Mohammad Usman Irshad ([@usman-irshad1](https://github.com/usman-irshad1))
+- **Repository**: [`CNN-accelerator`](https://github.com/usman-irshad1/CNN-accelerator)
+- **License**: Distributed under the [MIT License](LICENSE).
