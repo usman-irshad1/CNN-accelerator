@@ -1,28 +1,34 @@
 # CNN Accelerator Architecture (FPGA SystemVerilog)
 
-A hardware-accelerated 3D Convolutional Neural Network (CNN) Engine implemented in SystemVerilog for Xilinx FPGA deployment. This project implements a fully parameterized, multi-channel 3D convolution layer processor featuring 3 parallel DSP MAC compute engines, dynamic kernel parameterization, 3D memory address generation, and integrated ReLU activation.
+[![HDL: SystemVerilog](https://img.shields.io/badge/HDL-SystemVerilog-blue?style=flat-square)]()
+[![Target Device: Virtex-7](https://img.shields.io/badge/Target_Device-Xilinx%20Virtex--7%20(xc7vx485t)-orange?style=flat-square)]()
+[![Verification: Vivado XSim](https://img.shields.io/badge/Verification-Vivado%20XSim%20Behavioral-2ea44f?style=flat-square)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+
+A parameterized 3D Convolutional Neural Network (CNN) hardware convolution engine implemented in **SystemVerilog** within **AMD/Xilinx Vivado** (configured for target device `xc7vx485tffg1157-1`, Virtex-7). This project implements a multi-channel 3D convolution layer datapath featuring **3 parallel 27-bit MAC compute engines**, a **3D Address Generation Unit (AGU)**, **dual-port Block RAM tensor streaming**, and integrated **ReLU activation**.
+
+> **Verification & Synthesis Status:**  
+> This repository provides complete synthesizable RTL sources (`MAC.srcs/sources_1/new/`), memory initialization vectors (`.mem`), a self-contained Vivado project (`MAC.xpr`), and a behavioral verification testbench (`TB_CC_full.sv`) with verified cycle-accurate simulation outputs (`documenation/MAC_output.pdf`). Post-place-and-route FPGA utilization (LUT/FF/DSP48E1 counts) and maximum clock frequency ($f_{\max}$) depend on user timing constraints (`.xdc`) and synthesis settings; deterministic cycle latency equations are provided below.
 
 ---
 
 ## Project Overview
 
-Convolutional Neural Networks (CNNs) rely heavily on multi-channel matrix convolutions, which are computationally dominated by Multiply-Accumulate (MAC) operations. Standard general-purpose processors (CPUs/GPUs) introduce memory bandwidth bottlenecks when streaming high-dimensional feature map tensors.
-
-This project implements a custom FPGA hardware accelerator datapath designed to optimize compute throughput, minimize memory access latency, and maximize resource utilization on Xilinx FPGAs via Vivado synthesis and behavioral simulation.
+Convolutional Neural Networks (CNNs) are computationally dominated by multi-channel 3D Multiply-Accumulate (MAC) operations. Rather than evaluating output feature maps sequentially on a single ALU, this RTL design exploits **filter-level spatial parallelism**:
+- Input image patch activations from `BRAM_1` are broadcast simultaneously to **three parallel MAC engines (`DSP.sv`, `DSP_2.sv`, `DSP_3.sv`)**.
+- Each MAC engine streams its own dedicated 3D filter weights concurrently from dual-port Block RAMs (`BRAM_1.sv` and `BRAM_2.sv`), computing **3 output feature map channels per clock cycle**.
 
 ---
 
 ## Hardware Architecture and Datapath
 
-The accelerator architecture consists of five primary hardware blocks:
+The accelerator consists of five hardware modules integrated in [`CNN_TOP_module.sv`](MAC.srcs/sources_1/new/CNN_TOP_module.sv):
 
-1. **Address Generation Unit (AGU)** (`adress_generator.sv`): Maps 3D spatial coordinates `(channel, row, column)` into sequential 1D Block RAM memory addresses.
-2. **Execution Controller (FSM)** (`Controller.sv`): A finite state machine (`IDLE`, `RUN`, `DONE`) managing 2D spatial patch windowing, depth channel iterations, read enables, accumulator clears, and result write strobes.
-3. **Dual-Port Block RAM Units** (`BRAM_1.sv`, `BRAM_2.sv`): Dual-port memory structures storing 3D image pixel tensors (`BRAM.mem`) and weight matrices (`Kernel_1.mem`, `kernel_2.mem`, `Kernel_3.mem`).
-4. **Multi-DSP Compute Engines** (`DSP.sv`, `DSP_2.sv`, `DSP_3.sv`): Three parallel Multiply-Accumulate (MAC) cores with 27-bit accumulator registers that process three output feature map kernels concurrently.
-5. **ReLU Activation & Result Memory** (`result_mem.sv`): Latching unit that applies independent rectified linear unit activation per DSP channel upon completion of depth channel accumulation.
-
-### Architectural Datapath Flowchart
+1. **Address Generation Unit (AGU)** ([`adress_generator.sv`](MAC.srcs/sources_1/new/adress_generator.sv)): Translates 3D spatial window coordinates `(channel, row, column)` into sequential 1D Block RAM read addresses.
+2. **Execution Controller (FSM)** ([`Controller.sv`](MAC.srcs/sources_1/new/Controller.sv)): A finite state machine (`IDLE`, `RUN`, `DONE`) coordinating 2D sliding-window traversal, depth-channel accumulation, accumulator resets, and output write strobes.
+3. **Dual-Port Block RAM Units** ([`BRAM_1.sv`](MAC.srcs/sources_1/new/BRAM_1.sv), [`BRAM_2.sv`](MAC.srcs/sources_1/new/BRAM_2.sv)): Dual-port synchronous memory arrays initialized from [`BRAM.mem`](BRAM.mem) (input tensor) and `Kernel_1.mem`–`Kernel_3.mem` (filter weights).
+4. **3 Parallel MAC Compute Engines** ([`DSP.sv`](MAC.srcs/sources_1/new/DSP.sv), [`DSP_2.sv`](MAC.srcs/sources_1/new/DSP_2.sv), [`DSP_3.sv`](MAC.srcs/sources_1/new/DSP_3.sv)): Three concurrent Multiply-Accumulate units with 27-bit signed accumulators.
+5. **ReLU Activation & Result Memory** ([`result_mem.sv`](MAC.srcs/sources_1/new/result_mem.sv)): Applies hardware $\max(0, x)$ rectification per channel upon completing all input depth channels and latches the output feature maps (`results`, `results_1`, `results_2`).
 
 ```mermaid
 flowchart TD
@@ -59,36 +65,23 @@ flowchart TD
 
 ---
 
-## Mathematical Formulation
+## Mathematical Formulation & Deterministic Cycle Latency
 
-### 1. Multi-Channel 3D Convolution Equation
+### 1. Multi-Channel 3D Convolution with ReLU
+For an input tensor $X$ of shape $D \times H \times W$ and $C_{\text{out}} = 3$ parallel filters of spatial size $K = k_h \times k_w$:
 
-For an input tensor $X$ with $D$ input channels and spatial resolution $H \times W$, the output pixel $Y$ for filter $c_{out}$ at spatial location $(r, c)$ with kernel size $K$ is defined as:
+$$Y_{c_{\text{out}}}(r, c) = \max \left( 0, \sum_{c_{\text{in}}=0}^{D-1} \sum_{i=0}^{K-1} X(c_{\text{in}}, r, c, i) \cdot W_{c_{\text{out}}}(c_{\text{in}}, i) \right)$$
 
-$$
-Y_{c_{out}}(r, c) = \max \left( 0, \sum_{c_{in}=0}^{D-1} \sum_{i=0}^{K-1} X(c_{in}, r, c, i) \cdot W_{c_{out}}(c_{in}, i) \right)
-$$
-
-### Plain-Text Representation:
-
-```text
-Y[c_out][r][c] = max( 0, Sum over c_in from 0 to D-1 of ( Sum over i from 0 to K-1 of ( X[c_in][r][c][i] * W[c_out][c_in][i] ) ) )
-```
-
-Where:
-- `X(c_in, r, c, i)` is the pixel value at spatial window element offset `i` in channel `c_in`.
-- `W(c_out, c_in, i)` is the weight value for output filter `c_out` at channel `c_in` offset `i`.
-- `K` is the total number of elements per kernel patch (e.g., $K=9$ for a $3 \times 3$ kernel).
-- $\max(0, z)$ is the non-linear Rectified Linear Unit (ReLU) activation function.
-
----
-
-## Key Hardware Features
-
-- **Multi-DSP Parallel Processing**: Processes 3 output kernels simultaneously in parallel using dedicated DSP MAC modules (`DSP.sv`, `DSP_2.sv`, `DSP_3.sv`).
-- **Dynamic Parameterization**: Configurable `kernel_size`, `depth_val`, `mem_length`, `accum_length`, and `depth_width` parameters across top-level and submodules.
-- **3D Depth Accumulation**: Multi-channel accumulation without clearing between channels; accumulator reset triggers only upon spatial window transition.
-- **Rectified Linear Unit (ReLU)**: Integrated non-linear activation applied per channel before storing results into output memory buffers.
+### 2. Cycle-Count & Hardware Resource Model
+| Architectural Parameter | Configured Value (`TB_CC_full.sv`) | Hardware / Timing Details |
+| :--- | :---: | :--- |
+| **Target FPGA Part (`MAC.xpr`)** | `xc7vx485tffg1157-1` | AMD/Xilinx Virtex-7 FPGA |
+| **Input Tensor Dimensions ($H \times W \times D$)** | $5 \times 5 \times 2$ | 50 input elements in `BRAM.mem` |
+| **Kernel Dimensions ($k_h \times k_w \times D$)** | $3 \times 3 \times 2$ ($K = 9$) | 3 parallel 3D filters (`Kernel_1..3.mem`) |
+| **Output Feature Map Resolution** | $3 \times 3 \times 3$ | 9 spatial outputs $\times$ 3 channels = 27 outputs |
+| **Parallel MAC Units** | `3` (`DSP`, `DSP_2`, `DSP_3`) | 27-bit accumulator width; maps to 3 DSP48E1 slices |
+| **MAC Cycles per Output Pixel** | $K \times D = 9 \times 2 = 18\text{ cycles}$ | Computes all 3 output channels in parallel |
+| **Total Convolution Compute Window** | $9\text{ patches} \times 18\text{ cycles} \approx 162\text{ cycles}$ | Complete 3-filter 3D convolution finishes within `< 2 us` at `100 MHz` |
 
 ---
 
@@ -109,22 +102,22 @@ CNN-accelerator/
 │   │   └── CNN_TOP_module.sv      # Top-level accelerator integration wrapper
 │   └── sim_1/new/
 │       └── TB_CC_full.sv          # System-level testbench environment
+├── documenation/
+│   ├── MAC_output.pdf             # Captured Vivado waveform and simulation output report
+│   └── documetaion.txt            # Detailed module-by-module RTL design notes
 ├── BRAM.mem                       # Image tensor memory initialization file
-├── Kernel_1.mem                   # Multi-channel weights for Kernel 1
-├── kernel_2.mem                   # Multi-channel weights for Kernel 2
-├── Kernel_3.mem                   # Multi-channel weights for Kernel 3
-├── MAC.xpr                        # Xilinx Vivado project file
+├── MAC.xpr                        # Xilinx Vivado project file (xc7vx485tffg1157-1)
+├── LICENSE                        # MIT License
 └── README.md                      # Project architecture documentation
 ```
 
 ---
 
-## Simulation and Verification
+## Behavioral Simulation & Verification Evidence
 
-The top-level testbench (`TB_CC_full.sv`) validates multi-channel, multi-DSP 3D convolution on a 5 x 5 x 2 input tensor (`H=5, W=5, D=2`) with 3 x 3 kernels across all 3 parallel DSP channels.
+The system testbench ([`TB_CC_full.sv`](MAC.srcs/sim_1/new/TB_CC_full.sv)) verifies multi-channel, 3-DSP convolution on a $5 \times 5 \times 2$ input tensor (`H=5, W=5, D=2`) with $3 \times 3$ kernels. Full waveform captures are available in [`documenation/MAC_output.pdf`](documenation/MAC_output.pdf).
 
-### Verified Simulation Results (`depth = 2`):
-
+### Verified Console Output (`depth = 2`):
 ```text
 CONVOLUTION COMPLETE - MULTI-DSP RESULTS
 ======================================
@@ -139,17 +132,16 @@ Result_DSP1[7] = 0  |  Result_DSP2[7] = 16 |  Result_DSP3[7] = 152
 Result_DSP1[8] = 0  |  Result_DSP2[8] = 19 |  Result_DSP3[8] = 163
 ======================================
 ```
+*(Note: `Result_DSP1` outputs `0` across all 9 spatial positions because `Kernel_1` applies negative filter weights whose negative convolution sums are clamped to `0` by the hardware ReLU unit in `result_mem.sv`, validating ReLU rectification alongside positive accumulations on `DSP2` and `DSP3`).*
 
 ---
 
-## How to Run Simulation in Xilinx Vivado
+## How to Run Simulation & Synthesis in Xilinx Vivado
 
-1. Open **Vivado** (2019.1 or later).
-2. Open project file `MAC.xpr`.
-3. Set `CNN_TOP_tb` (`TB_CC_full.sv`) as the active simulation top module.
-4. Click **Run Simulation -> Run Behavioral Simulation**.
-5. Set simulation run time to `2us` (`run 2us` in TCL console).
-6. Observe TCL Console outputs verifying 100% exact mathematical results across all 3 feature maps.
+1. Clone the repository and open [`MAC.xpr`](MAC.xpr) in **AMD/Xilinx Vivado** (2019.1 or newer).
+2. In the **Sources** pane under *Simulation Sources*, verify that `CNN_TOP_tb` (`TB_CC_full.sv`) is set as the top module.
+3. Click **Run Simulation $\rightarrow$ Run Behavioral Simulation** and execute `run 2us` in the Vivado Tcl Console to reproduce the 9-element feature map table above.
+4. To inspect FPGA resource utilization (DSP48E1, BRAM, LUT, FF), click **Run Synthesis** (`synth_1`, target part `xc7vx485tffg1157-1`) and open **Report Utilization** once synthesis completes.
 
 ---
 
