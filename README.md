@@ -1,8 +1,8 @@
 # CNN Accelerator Architecture (FPGA SystemVerilog)
 
-[![HDL: SystemVerilog](https://img.shields.io/badge/HDL-SystemVerilog-blue?style=flat-square)]()
+![HDL: SystemVerilog](https://img.shields.io/badge/HDL-SystemVerilog-blue?style=flat-square)
 [![Target Device: Virtex-7](https://img.shields.io/badge/Target_Device-Xilinx%20Virtex--7%20(xc7vx485t)-orange?style=flat-square)]()
-[![Verification: Vivado XSim](https://img.shields.io/badge/Verification-Vivado%20XSim%20Behavioral-2ea44f?style=flat-square)]()
+![Verification: Vivado XSim](https://img.shields.io/badge/Verification-Vivado%20XSim%20Behavioral-2ea44f?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 A parameterized 3D Convolutional Neural Network (CNN) hardware convolution engine implemented in **SystemVerilog** within **AMD/Xilinx Vivado** (configured for target device `xc7vx485tffg1157-1`, Virtex-7). This project implements a multi-channel 3D convolution layer datapath featuring **3 parallel 27-bit MAC compute engines**, a **3D Address Generation Unit (AGU)**, **dual-port Block RAM tensor streaming**, and integrated **ReLU activation**.
